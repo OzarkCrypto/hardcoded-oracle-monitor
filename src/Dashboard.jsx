@@ -4,16 +4,12 @@ const MORPHO_API = "https://api.morpho.org/graphql";
 const DEFILLAMA_PRICES = "https://coins.llama.fi/prices/current";
 
 const CHAIN_MAP = {
-  1: { name: "Ethereum", short: "ETH", color: "#627EEA", explorer: "https://etherscan.io" },
-  8453: { name: "Base", short: "BASE", color: "#0052FF", explorer: "https://basescan.org" },
-  42161: { name: "Arbitrum", short: "ARB", color: "#28A0F0", explorer: "https://arbiscan.io" },
+  1: { name: "Ethereum", short: "ETH", color: "#627EEA" },
+  8453: { name: "Base", short: "BASE", color: "#0052FF" },
+  42161: { name: "Arbitrum", short: "ARB", color: "#28A0F0" },
 };
 
-const CHAIN_LLAMA_PREFIX = {
-  1: "ethereum",
-  8453: "base",
-  42161: "arbitrum",
-};
+const CHAIN_LLAMA_PREFIX = { 1: "ethereum", 8453: "base", 42161: "arbitrum" };
 
 const MORPHO_QUERY = `{
   markets(
@@ -47,11 +43,7 @@ const MORPHO_QUERY = `{
       }
       loanAsset { address symbol decimals priceUsd }
       collateralAsset { address symbol decimals priceUsd }
-      state {
-        supplyAssetsUsd
-        borrowAssetsUsd
-        utilization
-      }
+      state { supplyAssetsUsd borrowAssetsUsd utilization }
       warnings { type level }
     }
   }
@@ -60,73 +52,37 @@ const MORPHO_QUERY = `{
 function classifyOracle(market) {
   const oracle = market.oracle;
   if (!oracle) return { type: "no_oracle", hardcoded: false, feeds: [], label: "No Oracle (Idle)" };
-
   const oracleType = oracle.type;
   const data = oracle.data || {};
   const feeds = [];
-
   for (const key of ["baseFeedOne", "baseFeedTwo", "quoteFeedOne", "quoteFeedTwo"]) {
     if (data[key]) feeds.push({ slot: key, ...data[key] });
   }
-
   if (oracleType === "Unknown" || oracleType === null) {
-    return { type: "unknown", hardcoded: true, feeds: [], label: "Unknown Oracle" };
+    return { type: "unknown", hardcoded: true, feeds: [], label: "Unknown" };
   }
-
-  if (
-    (oracleType === "ChainlinkOracle" || oracleType === "ChainlinkOracleV2") &&
-    feeds.length === 0
-  ) {
-    return { type: "hardcoded", hardcoded: true, feeds: [], label: "Hardcoded (No Feeds)" };
+  if ((oracleType === "ChainlinkOracle" || oracleType === "ChainlinkOracleV2") && feeds.length === 0) {
+    return { type: "hardcoded", hardcoded: true, feeds: [], label: "Hardcoded" };
   }
-
-  return { type: "dynamic", hardcoded: false, feeds, label: oracleType };
+  return { type: "dynamic", hardcoded: false, feeds, label: oracleType.replace("Chainlink", "CL") };
 }
 
-function formatUsd(value) {
-  if (!value && value !== 0) return "—";
-  if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
-  if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
-  if (value >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
-  return `$${value.toFixed(0)}`;
+function fmt(v) {
+  if (!v && v !== 0) return "—";
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
+  return `$${v.toFixed(0)}`;
 }
 
-function formatPct(value) {
-  if (!value && value !== 0) return "—";
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function RiskBadge({ level }) {
-  const colors = {
-    critical: { bg: "rgba(239,68,68,0.15)", border: "#ef4444", text: "#fca5a5" },
-    high: { bg: "rgba(249,115,22,0.15)", border: "#f97316", text: "#fdba74" },
-    medium: { bg: "rgba(234,179,8,0.15)", border: "#eab308", text: "#fde047" },
-    low: { bg: "rgba(34,197,94,0.15)", border: "#22c55e", text: "#86efac" },
-  };
-  const c = colors[level] || colors.low;
-  return (
-    <span
-      style={{
-        padding: "2px 8px",
-        borderRadius: "4px",
-        fontSize: "11px",
-        fontWeight: 600,
-        background: c.bg,
-        border: `1px solid ${c.border}`,
-        color: c.text,
-        textTransform: "uppercase",
-        letterSpacing: "0.5px",
-      }}
-    >
-      {level}
-    </span>
-  );
+function pct(v) {
+  if (!v && v !== 0) return "—";
+  return `${(v * 100).toFixed(1)}%`;
 }
 
 function assessRisk(market, oracleInfo, deviation) {
   const supply = market.state?.supplyAssetsUsd || 0;
   const absDev = Math.abs(deviation || 0);
-
   if (!oracleInfo.hardcoded) return "low";
   if (absDev > 5) return "critical";
   if (absDev > 2) return "high";
@@ -135,23 +91,12 @@ function assessRisk(market, oracleInfo, deviation) {
   return "medium";
 }
 
-function Spinner() {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <div
-        style={{
-          width: 16,
-          height: 16,
-          border: "2px solid rgba(255,255,255,0.1)",
-          borderTop: "2px solid #f97316",
-          borderRadius: "50%",
-          animation: "spin 1s linear infinite",
-        }}
-      />
-      <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Loading...</span>
-    </div>
-  );
-}
+const RISK_STYLE = {
+  critical: { bg: "#fef2f2", color: "#dc2626", border: "#fecaca" },
+  high: { bg: "#fff7ed", color: "#ea580c", border: "#fed7aa" },
+  medium: { bg: "#fefce8", color: "#ca8a04", border: "#fef08a" },
+  low: { bg: "#f0fdf4", color: "#16a34a", border: "#bbf7d0" },
+};
 
 export default function HardcodedOracleMonitor() {
   const [markets, setMarkets] = useState([]);
@@ -159,12 +104,12 @@ export default function HardcodedOracleMonitor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [filter, setFilter] = useState("hardcoded"); // hardcoded | all | chain
+  const [filter, setFilter] = useState("hardcoded");
   const [chainFilter, setChainFilter] = useState("all");
   const [sortBy, setSortBy] = useState("supply");
   const [sortDir, setSortDir] = useState("desc");
   const [minTvl, setMinTvl] = useState(1_000_000);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [search, setSearch] = useState("");
 
   const fetchMarkets = useCallback(async () => {
     setLoading(true);
@@ -177,33 +122,25 @@ export default function HardcodedOracleMonitor() {
       });
       const json = await res.json();
       if (json.errors) throw new Error(json.errors[0].message);
-
       const items = json.data.markets.items.map((m) => {
         const oracleInfo = classifyOracle(m);
         const chainId = m.morphoBlue?.chain?.id || 1;
         return { ...m, oracleInfo, chainId };
       });
-
       setMarkets(items);
       setLastUpdate(new Date());
 
-      // Fetch DEX prices for collateral/loan assets
       const tokenAddrs = new Set();
       items.forEach((m) => {
-        const prefix = CHAIN_LLAMA_PREFIX[m.chainId] || "ethereum";
-        if (m.collateralAsset?.address)
-          tokenAddrs.add(`${prefix}:${m.collateralAsset.address}`);
-        if (m.loanAsset?.address)
-          tokenAddrs.add(`${prefix}:${m.loanAsset.address}`);
+        const pfx = CHAIN_LLAMA_PREFIX[m.chainId] || "ethereum";
+        if (m.collateralAsset?.address) tokenAddrs.add(`${pfx}:${m.collateralAsset.address}`);
+        if (m.loanAsset?.address) tokenAddrs.add(`${pfx}:${m.loanAsset.address}`);
       });
-
-      // Batch in chunks of 50
       const addrArr = [...tokenAddrs];
       const prices = {};
       for (let i = 0; i < addrArr.length; i += 50) {
-        const chunk = addrArr.slice(i, i + 50);
         try {
-          const pRes = await fetch(`${DEFILLAMA_PRICES}/${chunk.join(",")}`);
+          const pRes = await fetch(`${DEFILLAMA_PRICES}/${addrArr.slice(i, i + 50).join(",")}`);
           const pJson = await pRes.json();
           Object.assign(prices, pJson.coins || {});
         } catch {}
@@ -218,426 +155,176 @@ export default function HardcodedOracleMonitor() {
 
   useEffect(() => {
     fetchMarkets();
-    const interval = setInterval(fetchMarkets, 120_000); // 2min refresh
-    return () => clearInterval(interval);
+    const iv = setInterval(fetchMarkets, 120_000);
+    return () => clearInterval(iv);
   }, [fetchMarkets]);
 
-  const processedMarkets = useMemo(() => {
+  const processed = useMemo(() => {
     return markets
       .map((m) => {
-        const chainId = m.chainId;
-        const prefix = CHAIN_LLAMA_PREFIX[chainId] || "ethereum";
-
-        let colDexPrice = null;
-        let loanDexPrice = null;
+        const pfx = CHAIN_LLAMA_PREFIX[m.chainId] || "ethereum";
+        let colDex = m.collateralAsset?.address ? dexPrices[`${pfx}:${m.collateralAsset.address}`]?.price : null;
+        let loanDex = m.loanAsset?.address ? dexPrices[`${pfx}:${m.loanAsset.address}`]?.price : null;
         let deviation = null;
-
-        if (m.collateralAsset?.address) {
-          const key = `${prefix}:${m.collateralAsset.address}`;
-          colDexPrice = dexPrices[key]?.price || null;
+        const oCol = m.collateralAsset?.priceUsd;
+        const oLoan = m.loanAsset?.priceUsd;
+        if (colDex && loanDex && oCol && oLoan) {
+          const oR = oCol / oLoan;
+          const dR = colDex / loanDex;
+          if (dR > 0) deviation = ((oR - dR) / dR) * 100;
         }
-        if (m.loanAsset?.address) {
-          const key = `${prefix}:${m.loanAsset.address}`;
-          loanDexPrice = dexPrices[key]?.price || null;
-        }
-
-        // Calculate deviation: oracle implied ratio vs DEX ratio
-        const oracleColPrice = m.collateralAsset?.priceUsd;
-        const oracleLoanPrice = m.loanAsset?.priceUsd;
-
-        if (colDexPrice && loanDexPrice && oracleColPrice && oracleLoanPrice) {
-          const oracleRatio = oracleColPrice / oracleLoanPrice;
-          const dexRatio = colDexPrice / loanDexPrice;
-          if (dexRatio > 0) {
-            deviation = ((oracleRatio - dexRatio) / dexRatio) * 100;
-          }
-        }
-
         const risk = assessRisk(m, m.oracleInfo, deviation);
-
-        return { ...m, colDexPrice, loanDexPrice, deviation, risk };
+        return { ...m, colDex, loanDex, deviation, risk };
       })
       .filter((m) => {
-        const supply = m.state?.supplyAssetsUsd || 0;
-        if (supply < minTvl) return false;
+        const s = m.state?.supplyAssetsUsd || 0;
+        if (s < minTvl) return false;
         if (filter === "hardcoded" && !m.oracleInfo.hardcoded) return false;
         if (chainFilter !== "all" && m.chainId !== parseInt(chainFilter)) return false;
-        if (searchQuery) {
-          const q = searchQuery.toLowerCase();
-          const col = (m.collateralAsset?.symbol || "").toLowerCase();
-          const loan = (m.loanAsset?.symbol || "").toLowerCase();
-          if (!col.includes(q) && !loan.includes(q)) return false;
+        if (search) {
+          const q = search.toLowerCase();
+          const c = (m.collateralAsset?.symbol || "").toLowerCase();
+          const l = (m.loanAsset?.symbol || "").toLowerCase();
+          if (!c.includes(q) && !l.includes(q)) return false;
         }
         return true;
       })
       .sort((a, b) => {
-        let aVal, bVal;
-        switch (sortBy) {
-          case "supply":
-            aVal = a.state?.supplyAssetsUsd || 0;
-            bVal = b.state?.supplyAssetsUsd || 0;
-            break;
-          case "borrow":
-            aVal = a.state?.borrowAssetsUsd || 0;
-            bVal = b.state?.borrowAssetsUsd || 0;
-            break;
-          case "deviation":
-            aVal = Math.abs(a.deviation || 0);
-            bVal = Math.abs(b.deviation || 0);
-            break;
-          case "risk":
-            const riskOrder = { critical: 4, high: 3, medium: 2, low: 1 };
-            aVal = riskOrder[a.risk] || 0;
-            bVal = riskOrder[b.risk] || 0;
-            break;
-          default:
-            aVal = a.state?.supplyAssetsUsd || 0;
-            bVal = b.state?.supplyAssetsUsd || 0;
-        }
-        return sortDir === "desc" ? bVal - aVal : aVal - bVal;
+        let av, bv;
+        if (sortBy === "supply") { av = a.state?.supplyAssetsUsd || 0; bv = b.state?.supplyAssetsUsd || 0; }
+        else if (sortBy === "borrow") { av = a.state?.borrowAssetsUsd || 0; bv = b.state?.borrowAssetsUsd || 0; }
+        else if (sortBy === "deviation") { av = Math.abs(a.deviation || 0); bv = Math.abs(b.deviation || 0); }
+        else if (sortBy === "risk") { const ro = { critical: 4, high: 3, medium: 2, low: 1 }; av = ro[a.risk] || 0; bv = ro[b.risk] || 0; }
+        else { av = a.state?.supplyAssetsUsd || 0; bv = b.state?.supplyAssetsUsd || 0; }
+        return sortDir === "desc" ? bv - av : av - bv;
       });
-  }, [markets, dexPrices, filter, chainFilter, sortBy, sortDir, minTvl, searchQuery]);
+  }, [markets, dexPrices, filter, chainFilter, sortBy, sortDir, minTvl, search]);
 
   const stats = useMemo(() => {
-    const hardcoded = markets.filter((m) => m.oracleInfo.hardcoded);
-    const totalHcTvl = hardcoded.reduce(
-      (s, m) => s + (m.state?.supplyAssetsUsd || 0),
-      0
-    );
-    const totalTvl = markets
-      .filter((m) => (m.state?.supplyAssetsUsd || 0) >= minTvl)
-      .reduce((s, m) => s + (m.state?.supplyAssetsUsd || 0), 0);
-    return {
-      totalMarkets: markets.filter((m) => (m.state?.supplyAssetsUsd || 0) >= minTvl).length,
-      hardcodedCount: hardcoded.filter((m) => (m.state?.supplyAssetsUsd || 0) >= minTvl).length,
-      totalHcTvl,
-      totalTvl,
-    };
+    const hc = markets.filter((m) => m.oracleInfo.hardcoded && (m.state?.supplyAssetsUsd || 0) >= minTvl);
+    const all = markets.filter((m) => (m.state?.supplyAssetsUsd || 0) >= minTvl);
+    const hcTvl = hc.reduce((s, m) => s + (m.state?.supplyAssetsUsd || 0), 0);
+    const totalTvl = all.reduce((s, m) => s + (m.state?.supplyAssetsUsd || 0), 0);
+    return { hcCount: hc.length, allCount: all.length, hcTvl, totalTvl };
   }, [markets, minTvl]);
 
-  const handleSort = (col) => {
-    if (sortBy === col) {
-      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-    } else {
-      setSortBy(col);
-      setSortDir("desc");
-    }
+  const doSort = (col) => {
+    if (sortBy === col) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else { setSortBy(col); setSortDir("desc"); }
   };
 
-  const SortArrow = ({ col }) => {
-    if (sortBy !== col) return <span style={{ opacity: 0.3 }}>↕</span>;
-    return <span>{sortDir === "desc" ? "↓" : "↑"}</span>;
+  const S = {
+    page: { fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "#fff", color: "#111", minHeight: "100vh", padding: "20px 24px", fontSize: 13 },
+    header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 },
+    title: { fontSize: 15, fontWeight: 700, color: "#111", letterSpacing: "-0.3px" },
+    subtitle: { fontSize: 11, color: "#999", marginTop: 2 },
+    statsRow: { display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" },
+    stat: { padding: "8px 14px", background: "#fafafa", border: "1px solid #eee", borderRadius: 6, minWidth: 140 },
+    statLabel: { fontSize: 10, color: "#999", textTransform: "uppercase", letterSpacing: "0.3px", marginBottom: 2 },
+    statVal: { fontSize: 18, fontWeight: 700 },
+    statSub: { fontSize: 10, color: "#bbb" },
+    filters: { display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap", alignItems: "center" },
+    sel: { padding: "4px 8px", background: "#fff", border: "1px solid #ddd", borderRadius: 4, fontSize: 11, color: "#333" },
+    input: { padding: "4px 8px", background: "#fff", border: "1px solid #ddd", borderRadius: 4, fontSize: 11, color: "#333", width: 120, outline: "none" },
+    table: { width: "100%", borderCollapse: "collapse", fontSize: 12 },
+    th: { padding: "6px 8px", textAlign: "left", color: "#999", fontWeight: 500, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.3px", borderBottom: "2px solid #eee", whiteSpace: "nowrap", userSelect: "none" },
+    td: { padding: "6px 8px", borderBottom: "1px solid #f3f3f3" },
+    link: { color: "#111", textDecoration: "none", fontWeight: 600 },
+    badge: (r) => ({ display: "inline-block", padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 600, background: RISK_STYLE[r]?.bg, color: RISK_STYLE[r]?.color, border: `1px solid ${RISK_STYLE[r]?.border}`, textTransform: "uppercase" }),
+    chainBadge: (c) => ({ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: `${c}11`, color: c, fontWeight: 600, border: `1px solid ${c}33` }),
+    warn: (color) => ({ fontSize: 9, padding: "0px 4px", borderRadius: 2, background: color === "red" ? "#fef2f2" : "#fefce8", color: color === "red" ? "#dc2626" : "#ca8a04", border: `1px solid ${color === "red" ? "#fecaca" : "#fef08a"}`, marginRight: 3 }),
+    muted: { color: "#bbb" },
+    refreshBtn: { padding: "4px 10px", background: "#fafafa", border: "1px solid #ddd", borderRadius: 4, fontSize: 11, cursor: "pointer", color: "#666" },
+    error: { padding: 8, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 4, marginBottom: 12, fontSize: 11, color: "#dc2626" },
+    footer: { marginTop: 16, padding: 12, background: "#fafafa", border: "1px solid #eee", borderRadius: 6, fontSize: 10, color: "#999", lineHeight: 1.5 },
   };
 
   return (
-    <div
-      style={{
-        fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
-        background: "#0a0a0f",
-        color: "#e2e2e8",
-        minHeight: "100vh",
-        padding: "24px",
-      }}
-    >
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #111118; }
-        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-        input, select { font-family: inherit; }
-      `}</style>
-
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: 24,
-          flexWrap: "wrap",
-          gap: 16,
-        }}
-      >
+    <div style={S.page}>
+      <div style={S.header}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: loading ? "#f97316" : "#22c55e",
-                animation: loading ? "pulse 1.5s infinite" : "none",
-              }}
-            />
-            <h1
-              style={{
-                fontSize: 18,
-                fontWeight: 700,
-                color: "#fff",
-                letterSpacing: "-0.3px",
-              }}
-            >
-              Hardcoded Oracle Monitor
-            </h1>
-            <span
-              style={{
-                fontSize: 10,
-                padding: "2px 6px",
-                background: "rgba(249,115,22,0.15)",
-                border: "1px solid rgba(249,115,22,0.3)",
-                borderRadius: 3,
-                color: "#f97316",
-                fontWeight: 600,
-              }}
-            >
-              MORPHO BLUE
-            </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: loading ? "#f59e0b" : "#22c55e" }} />
+            <span style={S.title}>Hardcoded Oracle Monitor</span>
+            <span style={{ fontSize: 9, padding: "1px 5px", background: "#f5f5f5", border: "1px solid #e5e5e5", borderRadius: 3, color: "#999", fontWeight: 600 }}>MORPHO</span>
           </div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>
-            Monitoring markets with fixed-price oracles that don't liquidate on depeg
-            {lastUpdate && (
-              <span> · Updated {lastUpdate.toLocaleTimeString()}</span>
-            )}
+          <div style={S.subtitle}>
+            Fixed-price oracle markets — no liquidation on depeg
+            {lastUpdate && <span> · {lastUpdate.toLocaleTimeString()}</span>}
           </div>
         </div>
-        <button
-          onClick={fetchMarkets}
-          disabled={loading}
-          style={{
-            padding: "6px 14px",
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 4,
-            color: "#e2e2e8",
-            fontSize: 12,
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          {loading ? "Refreshing..." : "↻ Refresh"}
+        <button onClick={fetchMarkets} disabled={loading} style={S.refreshBtn}>
+          {loading ? "..." : "↻ Refresh"}
         </button>
       </div>
 
-      {error && (
-        <div
-          style={{
-            padding: 12,
-            background: "rgba(239,68,68,0.1)",
-            border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: 6,
-            marginBottom: 16,
-            fontSize: 12,
-            color: "#fca5a5",
-          }}
-        >
-          Error: {error}
-        </div>
-      )}
+      {error && <div style={S.error}>Error: {error}</div>}
 
-      {/* Stats */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 12,
-          marginBottom: 20,
-        }}
-      >
+      <div style={S.statsRow}>
         {[
-          {
-            label: "Hardcoded Markets",
-            value: stats.hardcodedCount,
-            sub: `of ${stats.totalMarkets} total`,
-            color: "#f97316",
-          },
-          {
-            label: "Hardcoded TVL",
-            value: formatUsd(stats.totalHcTvl),
-            sub: `${stats.totalTvl > 0 ? ((stats.totalHcTvl / stats.totalTvl) * 100).toFixed(1) : 0}% of total`,
-            color: "#ef4444",
-          },
-          {
-            label: "Total Monitored TVL",
-            value: formatUsd(stats.totalTvl),
-            sub: `Min ${formatUsd(minTvl)} filter`,
-            color: "#3b82f6",
-          },
-          {
-            label: "Showing",
-            value: processedMarkets.length,
-            sub: filter === "hardcoded" ? "hardcoded only" : "all markets",
-            color: "#8b5cf6",
-          },
+          { label: "Hardcoded", value: stats.hcCount, sub: `/ ${stats.allCount} markets`, color: "#ea580c" },
+          { label: "HC TVL", value: fmt(stats.hcTvl), sub: `${stats.totalTvl > 0 ? ((stats.hcTvl / stats.totalTvl) * 100).toFixed(1) : 0}%`, color: "#dc2626" },
+          { label: "Total TVL", value: fmt(stats.totalTvl), sub: `≥ ${fmt(minTvl)}`, color: "#111" },
+          { label: "Showing", value: processed.length, sub: filter === "hardcoded" ? "hardcoded" : "all", color: "#6366f1" },
         ].map((s, i) => (
-          <div
-            key={i}
-            style={{
-              padding: "14px 16px",
-              background: "rgba(255,255,255,0.02)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: 6,
-            }}
-          >
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-              {s.label}
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: 2 }}>{s.sub}</div>
+          <div key={i} style={S.stat}>
+            <div style={S.statLabel}>{s.label}</div>
+            <div style={{ ...S.statVal, color: s.color }}>{s.value}</div>
+            <div style={S.statSub}>{s.sub}</div>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          marginBottom: 16,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
-        <div style={{ display: "flex", gap: 2, background: "rgba(255,255,255,0.03)", borderRadius: 4, border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden" }}>
-          {[
-            { key: "hardcoded", label: "Hardcoded Only" },
-            { key: "all", label: "All Markets" },
-          ].map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              style={{
-                padding: "6px 12px",
-                background: filter === f.key ? "rgba(249,115,22,0.2)" : "transparent",
-                border: "none",
-                color: filter === f.key ? "#f97316" : "rgba(255,255,255,0.4)",
-                fontSize: 11,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontWeight: filter === f.key ? 600 : 400,
-              }}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-
-        <select
-          value={chainFilter}
-          onChange={(e) => setChainFilter(e.target.value)}
-          style={{
-            padding: "6px 10px",
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: 4,
-            color: "#e2e2e8",
-            fontSize: 11,
-          }}
-        >
+      <div style={S.filters}>
+        {[{ k: "hardcoded", l: "Hardcoded" }, { k: "all", l: "All" }].map((f) => (
+          <button key={f.k} onClick={() => setFilter(f.k)}
+            style={{ padding: "4px 10px", background: filter === f.k ? "#111" : "#fff", color: filter === f.k ? "#fff" : "#666", border: "1px solid #ddd", borderRadius: 4, fontSize: 11, cursor: "pointer", fontWeight: filter === f.k ? 600 : 400 }}>
+            {f.l}
+          </button>
+        ))}
+        <select value={chainFilter} onChange={(e) => setChainFilter(e.target.value)} style={S.sel}>
           <option value="all">All Chains</option>
-          {Object.entries(CHAIN_MAP).map(([id, c]) => (
-            <option key={id} value={id}>{c.name}</option>
-          ))}
+          {Object.entries(CHAIN_MAP).map(([id, c]) => <option key={id} value={id}>{c.name}</option>)}
         </select>
-
-        <select
-          value={minTvl}
-          onChange={(e) => setMinTvl(Number(e.target.value))}
-          style={{
-            padding: "6px 10px",
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: 4,
-            color: "#e2e2e8",
-            fontSize: 11,
-          }}
-        >
-          <option value={100000}>Min $100K</option>
-          <option value={1000000}>Min $1M</option>
-          <option value={5000000}>Min $5M</option>
-          <option value={10000000}>Min $10M</option>
-          <option value={50000000}>Min $50M</option>
+        <select value={minTvl} onChange={(e) => setMinTvl(Number(e.target.value))} style={S.sel}>
+          <option value={100000}>≥ $100K</option>
+          <option value={1000000}>≥ $1M</option>
+          <option value={5000000}>≥ $5M</option>
+          <option value={10000000}>≥ $10M</option>
+          <option value={50000000}>≥ $50M</option>
         </select>
-
-        <input
-          type="text"
-          placeholder="Search token..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{
-            padding: "6px 10px",
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: 4,
-            color: "#e2e2e8",
-            fontSize: 11,
-            width: 140,
-            outline: "none",
-          }}
-        />
+        <input type="text" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} style={S.input} />
       </div>
 
       {loading && markets.length === 0 ? (
-        <div style={{ padding: 40, textAlign: "center" }}>
-          <Spinner />
-        </div>
+        <div style={{ padding: 30, textAlign: "center", color: "#ccc" }}>Loading...</div>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: 12,
-            }}
-          >
+          <table style={S.table}>
             <thead>
-              <tr
-                style={{
-                  borderBottom: "1px solid rgba(255,255,255,0.08)",
-                }}
-              >
+              <tr>
                 {[
-                  { key: "risk", label: "Risk", width: 70 },
-                  { key: "chain", label: "Chain", width: 60 },
-                  { key: "pair", label: "Market", width: 180 },
-                  { key: "oracle", label: "Oracle Type", width: 160 },
-                  { key: "supply", label: "Supply TVL", width: 100 },
-                  { key: "borrow", label: "Borrow", width: 100 },
-                  { key: "util", label: "Util", width: 60 },
-                  { key: "lltv", label: "LLTV", width: 60 },
-                  { key: "deviation", label: "Price Dev.", width: 90 },
-                  { key: "warnings", label: "Warnings", width: 120 },
-                ].map((col) => (
-                  <th
-                    key={col.key}
-                    onClick={() => ["supply", "borrow", "deviation", "risk"].includes(col.key) && handleSort(col.key)}
-                    style={{
-                      padding: "10px 8px",
-                      textAlign: "left",
-                      color: "rgba(255,255,255,0.4)",
-                      fontWeight: 500,
-                      fontSize: 10,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                      width: col.width,
-                      cursor: ["supply", "borrow", "deviation", "risk"].includes(col.key) ? "pointer" : "default",
-                      whiteSpace: "nowrap",
-                      userSelect: "none",
-                    }}
-                  >
-                    {col.label}{" "}
-                    {["supply", "borrow", "deviation", "risk"].includes(col.key) && (
-                      <SortArrow col={col.key} />
-                    )}
+                  { k: "risk", l: "Risk", w: 60, sort: true },
+                  { k: "chain", l: "Chain", w: 50 },
+                  { k: "pair", l: "Market", w: 160 },
+                  { k: "oracle", l: "Oracle", w: 130 },
+                  { k: "supply", l: "Supply", w: 90, sort: true },
+                  { k: "borrow", l: "Borrow", w: 90, sort: true },
+                  { k: "util", l: "Util", w: 50 },
+                  { k: "lltv", l: "LLTV", w: 50 },
+                  { k: "deviation", l: "Dev.", w: 70, sort: true },
+                  { k: "warnings", l: "Warnings", w: 100 },
+                ].map((c) => (
+                  <th key={c.k} onClick={() => c.sort && doSort(c.k)}
+                    style={{ ...S.th, width: c.w, cursor: c.sort ? "pointer" : "default" }}>
+                    {c.l} {c.sort && (sortBy === c.k ? (sortDir === "desc" ? "↓" : "↑") : "")}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {processedMarkets.map((m, idx) => {
-                const chain = CHAIN_MAP[m.chainId] || CHAIN_MAP[1];
+              {processed.map((m) => {
+                const ch = CHAIN_MAP[m.chainId] || CHAIN_MAP[1];
                 const col = m.collateralAsset?.symbol || "—";
                 const loan = m.loanAsset?.symbol || "—";
                 const supply = m.state?.supplyAssetsUsd || 0;
@@ -645,178 +332,71 @@ export default function HardcodedOracleMonitor() {
                 const util = m.state?.utilization;
                 const lltv = m.lltv ? parseInt(m.lltv) / 1e18 : null;
                 const dev = m.deviation;
-                const warnings = m.warnings || [];
-                const redWarnings = warnings.filter((w) => w.level === "RED");
+                const warns = m.warnings || [];
 
                 return (
-                  <tr
-                    key={m.uniqueKey}
-                    style={{
-                      borderBottom: "1px solid rgba(255,255,255,0.03)",
-                      background: idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)",
-                      transition: "background 0.15s",
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)")}
-                  >
-                    <td style={{ padding: "10px 8px" }}>
-                      <RiskBadge level={m.risk} />
-                    </td>
-                    <td style={{ padding: "10px 8px" }}>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          padding: "2px 6px",
-                          borderRadius: 3,
-                          background: `${chain.color}22`,
-                          color: chain.color,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {chain.short}
-                      </span>
-                    </td>
-                    <td style={{ padding: "10px 8px" }}>
-                      <a
-                        href={`https://app.morpho.org/market?id=${m.uniqueKey}&network=${m.chainId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          color: "#e2e2e8",
-                          textDecoration: "none",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {col}
-                        <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400 }}>/</span>
-                        {loan}
+                  <tr key={m.uniqueKey} style={{ transition: "background 0.1s" }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = "#fafafa"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+                    <td style={S.td}><span style={S.badge(m.risk)}>{m.risk}</span></td>
+                    <td style={S.td}><span style={S.chainBadge(ch.color)}>{ch.short}</span></td>
+                    <td style={S.td}>
+                      <a href={`https://app.morpho.org/market?id=${m.uniqueKey}&network=${m.chainId}`}
+                        target="_blank" rel="noopener noreferrer" style={S.link}>
+                        {col}<span style={{ color: "#ccc", fontWeight: 400 }}>/</span>{loan}
                       </a>
-                      {m.oracleInfo.hardcoded && (
-                        <span style={{ marginLeft: 6, fontSize: 9, color: "#f97316" }}>⚠ HARDCODED</span>
-                      )}
                     </td>
-                    <td style={{ padding: "10px 8px" }}>
-                      <div style={{ fontSize: 11, color: m.oracleInfo.hardcoded ? "#f97316" : "rgba(255,255,255,0.5)" }}>
+                    <td style={S.td}>
+                      <span style={{ color: m.oracleInfo.hardcoded ? "#ea580c" : "#999", fontWeight: m.oracleInfo.hardcoded ? 600 : 400, fontSize: 11 }}>
                         {m.oracleInfo.label}
-                      </div>
+                      </span>
                       {m.oracleInfo.feeds.length > 0 && (
-                        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", marginTop: 2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div style={{ fontSize: 9, color: "#ccc", marginTop: 1, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {m.oracleInfo.feeds.map((f) => f.description).join(" · ")}
                         </div>
                       )}
                     </td>
-                    <td style={{ padding: "10px 8px", fontWeight: 600 }}>
-                      {formatUsd(supply)}
-                    </td>
-                    <td style={{ padding: "10px 8px", color: "rgba(255,255,255,0.5)" }}>
-                      {formatUsd(borrow)}
-                    </td>
-                    <td style={{ padding: "10px 8px", color: "rgba(255,255,255,0.5)" }}>
-                      {util != null ? formatPct(util) : "—"}
-                    </td>
-                    <td style={{ padding: "10px 8px", color: "rgba(255,255,255,0.5)" }}>
-                      {lltv != null ? formatPct(lltv) : "—"}
-                    </td>
-                    <td style={{ padding: "10px 8px" }}>
+                    <td style={{ ...S.td, fontWeight: 600 }}>{fmt(supply)}</td>
+                    <td style={{ ...S.td, color: "#999" }}>{fmt(borrow)}</td>
+                    <td style={{ ...S.td, color: "#999" }}>{util != null ? pct(util) : "—"}</td>
+                    <td style={{ ...S.td, color: "#999" }}>{lltv != null ? pct(lltv) : "—"}</td>
+                    <td style={S.td}>
                       {dev != null ? (
-                        <span
-                          style={{
-                            color:
-                              Math.abs(dev) > 5
-                                ? "#ef4444"
-                                : Math.abs(dev) > 2
-                                ? "#f97316"
-                                : Math.abs(dev) > 0.5
-                                ? "#eab308"
-                                : "#22c55e",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {dev > 0 ? "+" : ""}
-                          {dev.toFixed(2)}%
+                        <span style={{
+                          fontWeight: 600,
+                          color: Math.abs(dev) > 5 ? "#dc2626" : Math.abs(dev) > 2 ? "#ea580c" : Math.abs(dev) > 0.5 ? "#ca8a04" : "#16a34a"
+                        }}>
+                          {dev > 0 ? "+" : ""}{dev.toFixed(2)}%
                         </span>
-                      ) : (
-                        <span style={{ color: "rgba(255,255,255,0.2)" }}>—</span>
-                      )}
+                      ) : <span style={S.muted}>—</span>}
                     </td>
-                    <td style={{ padding: "10px 8px" }}>
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                        {redWarnings.map((w, wi) => (
-                          <span
-                            key={wi}
-                            style={{
-                              fontSize: 9,
-                              padding: "1px 5px",
-                              borderRadius: 3,
-                              background: "rgba(239,68,68,0.1)",
-                              color: "#fca5a5",
-                              border: "1px solid rgba(239,68,68,0.2)",
-                            }}
-                            title={w.type}
-                          >
-                            {w.type.replace(/_/g, " ").replace("bad debt ", "BD:")}
-                          </span>
-                        ))}
-                        {warnings.filter((w) => w.level === "YELLOW").slice(0, 2).map((w, wi) => (
-                          <span
-                            key={`y-${wi}`}
-                            style={{
-                              fontSize: 9,
-                              padding: "1px 5px",
-                              borderRadius: 3,
-                              background: "rgba(234,179,8,0.1)",
-                              color: "#fde047",
-                              border: "1px solid rgba(234,179,8,0.15)",
-                            }}
-                            title={w.type}
-                          >
-                            {w.type.replace(/_/g, " ")}
-                          </span>
-                        ))}
-                      </div>
+                    <td style={S.td}>
+                      {warns.filter((w) => w.level === "RED").map((w, i) => (
+                        <span key={i} style={S.warn("red")} title={w.type}>
+                          {w.type.replace(/_/g, " ").replace("bad debt ", "BD:")}
+                        </span>
+                      ))}
+                      {warns.filter((w) => w.level === "YELLOW").slice(0, 2).map((w, i) => (
+                        <span key={`y${i}`} style={S.warn("yellow")} title={w.type}>
+                          {w.type.replace(/_/g, " ")}
+                        </span>
+                      ))}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-
-          {processedMarkets.length === 0 && !loading && (
-            <div
-              style={{
-                padding: 40,
-                textAlign: "center",
-                color: "rgba(255,255,255,0.3)",
-                fontSize: 13,
-              }}
-            >
-              No markets found with current filters
-            </div>
+          {processed.length === 0 && !loading && (
+            <div style={{ padding: 30, textAlign: "center", color: "#ccc", fontSize: 12 }}>No markets found</div>
           )}
         </div>
       )}
 
-      {/* Methodology */}
-      <div
-        style={{
-          marginTop: 24,
-          padding: "16px",
-          background: "rgba(255,255,255,0.02)",
-          border: "1px solid rgba(255,255,255,0.05)",
-          borderRadius: 6,
-          fontSize: 10,
-          color: "rgba(255,255,255,0.3)",
-          lineHeight: 1.6,
-        }}
-      >
-        <div style={{ fontWeight: 600, color: "rgba(255,255,255,0.5)", marginBottom: 6 }}>
-          Detection Methodology
-        </div>
-        <strong>Hardcoded Oracle</strong> = oracle.type is "Unknown" OR ChainlinkOracle/V2 with zero price feeds.
-        These markets use a fixed exchange rate (typically 1:1) and <strong>will not trigger liquidations</strong> when the collateral depegs.{" "}
-        <strong>Price Deviation</strong> = (Morpho oracle price ratio - DefiLlama DEX price ratio) / DEX ratio × 100.{" "}
-        <strong>Risk Levels</strong>: Critical (&gt;5% dev), High (&gt;2% dev or &gt;$50M TVL hardcoded), Medium (hardcoded), Low (dynamic oracle).{" "}
-        Data refreshes every 2 minutes.
+      <div style={S.footer}>
+        <strong>Detection:</strong> Hardcoded = oracle.type "Unknown" OR ChainlinkOracle/V2 with zero feeds.
+        <strong> Dev.</strong> = (oracle ratio − DEX ratio) / DEX ratio × 100.
+        <strong> Risk:</strong> Critical (&gt;5%), High (&gt;2% or &gt;$50M), Medium (hardcoded), Low (dynamic). Refreshes every 2min.
       </div>
     </div>
   );
